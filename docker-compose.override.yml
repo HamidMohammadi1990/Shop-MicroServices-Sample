@@ -1,0 +1,144 @@
+version: '3.4'
+
+services:
+  catalogdb:
+    container_name: catalogdb
+    restart: always
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+
+  basketdb:
+    container_name: basketdb
+    restart: always
+    ports:
+      - "6379:6379"
+
+  discountdb:
+    container_name: discountdb
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=admin1234
+      - POSTGRES_DB=discountdb
+    restart: always
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+      
+  pgadmin:
+    container_name: pgadmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@aspnetrun.com
+      - PGADMIN_DEFAULT_PASSWORD=admin1234
+    restart: always
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/root/.pgadmin
+
+  orderingdb:
+    container_name: orderingdb
+    restart: always
+    environment:
+      SA_PASSWORD: "@_Hamid=123321@"
+      ACCEPT_EULA: "Y"      
+    ports:
+      - "1436:1433"
+
+  rabbitmq:
+    container_name: rabbitmq
+    restart: always
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  portainer:
+    container_name: portainer
+    restart: always
+    ports:
+      - "8070:8000"
+      - "9000:9000"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "portainer_data:/data"
+
+  catalog.api:
+    container_name: catalog.api
+    environment:
+      - "DatabaseSettings:ConnectionString=mongodb://catalogdb:27017"
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_HTTP_PORTS=8080      
+    depends_on:
+      - catalogdb
+    ports:
+      - "8000:8080"      
+    volumes:
+      - ${APPDATA}/Microsoft/UserSecrets:/home/app/.microsoft/usersecrets:ro
+      - ${APPDATA}/ASP.NET/Https:/home/app/.aspnet/https:ro
+
+  basket.api:
+    container_name: basket.api
+    environment:
+      - "RedisSettings:ConnectionString=basketdb:6379"
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_HTTP_PORTS=5275
+      - "GrpcSettings:Discounturl=http://discount.grpc"
+      - "EventBusSettings:HostAddress=amqp://guest:guest@rabbitmq:5672"
+    depends_on:
+      - basketdb
+      - rabbitmq
+    ports:
+      - "8001:5275"      
+    volumes:
+      - ${APPDATA}/Microsoft/UserSecrets:/home/app/.microsoft/usersecrets:ro
+      - ${APPDATA}/ASP.NET/Https:/home/app/.aspnet/https:ro
+
+  discount.api:
+    container_name: discount.api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_HTTP_PORTS=5256
+      - "DatabaseSettings:ConnectionString=Server:discountdb;Port:5432;Database:DiscountDb;User Id=admin; Password=admin1234"
+    depends_on:
+      - discountdb
+    ports:
+      - "8002:5256"
+
+  discount.grpc:
+    container_name: discount.grpc
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_HTTP_PORTS=5093
+      - "DatabaseSettings:ConnectionString=Server:discountdb;Port:5432;Database:DiscountDb;User Id=admin; Password=admin1234"
+    ports:
+      - "8003:5093"
+    depends_on:
+      - discountdb
+
+  ordering.api:
+    container_name: ordering.api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_HTTP_PORTS=5273
+      - "ConnectionStrings:OrderingConnectionString=Data Source=orderingdb;Initial Catalog=OrderDb;User ID=sa;Password=@_Hamid=123321@;Encrypt=False;"
+      - "EventBusSettings:HostAddress=amqp://guest:guest@rabbitmq:5672"
+    ports:
+      - "8004:5273"
+    depends_on:
+      - orderingdb
+      - rabbitmq
+
+  ocelotapigateway:
+    container_name: ocelot.apt.gateway
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_HTTP_PORTS=5026
+    ports:
+      - "8005:5026"
+    depends_on:
+      - catalog.api
+      - basket.api
+      - discount.api
+      - ordering.api
